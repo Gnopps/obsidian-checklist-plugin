@@ -45,6 +45,7 @@ export const parseTodos = async (
     .filter((todo, i, a) => a.findIndex((_todo) => todo.line === _todo.line && todo.filePath === _todo.filePath) === i)
 
   allTodos.sort((a, b) => (sort === "new->old" ? b.fileCreatedTs - a.fileCreatedTs : a.fileCreatedTs - b.fileCreatedTs))
+  console.log(allTodos)
   return allTodos
 }
 
@@ -119,11 +120,20 @@ const findAllTodosFromTagBlock = (file: FileInfo, tag: TagCache) => {
   }
 
   const todos: TodoItem[] = []
+  let todoStack: TodoItem[] = []
   for (let i = tag.position.start.line; i < fileLines.length; i++) {
     const line = fileLines[i]
     if (line.length === 0) break
     if (lineIsValidTodo(line, tagMeta.main)) {
-      todos.push(formTodo(line, file.file, tagMeta, links, i))
+      const newItem = formTodo(line, file.file, tagMeta, links, i)
+      const parentItem = todoStack.pop()
+      if (parentItem && parentItem.spacesIndented < newItem.spacesIndented) {
+        parentItem.children.push(newItem)
+        todoStack.push(parentItem)
+      } else {
+        todos.push(newItem)
+      }
+      todoStack.push(newItem)
     }
   }
 
@@ -151,6 +161,7 @@ const formTodo = (line: string, file: TFile, tagMeta: TagMeta, links: LinkCache[
     line: lineNum,
     subTag: tagMeta?.sub,
     spacesIndented,
+    children: [],
   }
 }
 

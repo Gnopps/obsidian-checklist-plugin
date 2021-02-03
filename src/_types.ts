@@ -37,6 +37,7 @@ export type TodoItem = {
   subTag?: string
   line: number
   spacesIndented: number
+  children: TodoItem[]
 }
 
 export type TodoGroup = {
