@@ -40,7 +40,7 @@ export const parseTodos = async (
   )
   const allTodos = filesWithCache
     .flatMap((file) => {
-      return file.validTags.flatMap((tag) => findAllTodosFromTagBlock(file, tag))
+      return file.validTags.flatMap((tag) => findAllTodosFromTag(file, tag))
     })
     .filter((todo, i, a) => a.findIndex((_todo) => todo.line === _todo.line && todo.filePath === _todo.filePath) === i)
 
@@ -108,16 +108,16 @@ const isMetaPressed = (e: MouseEvent): boolean => {
   return isMacOS() ? e.metaKey : e.ctrlKey
 }
 
-const findAllTodosFromTagBlock = (file: FileInfo, tag: TagCache) => {
+const findAllTodosFromTag = (file: FileInfo, tag: TagCache) => {
   const fileContents = file.content
   const links = file.cache.links ?? []
   if (!fileContents) return []
   const fileLines = getAllLinesFromFile(fileContents)
   const tagMeta = getTagMeta(tag.tag)
   const tagLine = fileLines[tag.position.start.line]
-  if (lineIsValidTodo(tagLine, tagMeta.main)) {
-    return [formTodo(tagLine, file.file, tagMeta, links, tag.position.start.line)]
-  }
+  const originalLineIsTodo = lineIsValidTodo(tagLine, tagMeta.main)
+
+  // step 1
 
   const todos: TodoItem[] = []
   let todoStack: TodoItem[] = []
@@ -251,15 +251,21 @@ const setTodoStatusAtLineTo = (file: TFile, line: number, setTo: boolean) => {
   return combineFileLines(fileLines)
 }
 
-const getTagMeta = (tag: string): TagMeta => {
-  const [full, main, sub] = /^\#([^\/]+)\/?(.*)?$/.exec(tag)
-  return { main, sub }
-}
-
 const mapLinkMeta = (linkMeta: LinkMeta[]) => {
   const map = new Map<string, LinkMeta>()
   for (const link of linkMeta) map.set(link.filePath, link)
   return map
+}
+
+const isMacOS = () => {
+  return os.platform() === "darwin"
+}
+
+/** REGEX */
+
+const getTagMeta = (tag: string): TagMeta => {
+  const [full, main, sub] = /^\#([^\/]+)\/?(.*)?$/.exec(tag)
+  return { main, sub }
 }
 
 const setLineTo = (line: string, setTo: boolean) =>
@@ -277,7 +283,3 @@ const todoLineIsChecked = (line: string) => /^\s*\-\s\[x\]/.test(line)
 const getFileLabelFromName = (filename: string) => /^(.+)\.md$/.exec(filename)?.[1]
 const removeTagFromText = (text: string, tag: string) =>
   text.replace(new RegExp(`\\s?\\#${tag}[^\\s]*`, "g"), "").trim()
-
-const isMacOS = () => {
-  return os.platform() === "darwin"
-}
