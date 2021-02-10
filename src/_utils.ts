@@ -13,40 +13,44 @@ import type {
   TokenChunk,
   FileInfo,
 } from "src/_types"
+
 /** public */
 
 export const parseTodos = async (
   files: TFile[],
-  pageLink: string,
+  todoTag: string,
   cache: MetadataCache,
   vault: Vault,
   sort: SortDirection,
   ignoreFiles: string
 ): Promise<TodoItem[]> => {
-  const filesWithCache = await Promise.all(
-    files
-      .filter((file) => {
-        if (ignoreFiles && file.path.includes(ignoreFiles)) return false
-        const fileCache = cache.getFileCache(file)
-        const tagsOnPage = fileCache?.tags?.filter((e) => getTagMeta(e.tag).main === pageLink) ?? []
-        return !!tagsOnPage?.length
-      })
-      .map<Promise<FileInfo>>(async (file) => {
-        const fileCache = cache.getFileCache(file)
-        const tagsOnPage = fileCache?.tags?.filter((e) => getTagMeta(e.tag).main === pageLink) ?? []
-        const content = await vault.cachedRead(file)
-        return { content, cache: fileCache, validTags: tagsOnPage, file }
-      })
-  )
-  const allTodos = filesWithCache
-    .flatMap((file) => {
-      return file.validTags.flatMap((tag) => findAllTodosFromTag(file, tag))
-    })
-    .filter((todo, i, a) => a.findIndex((_todo) => todo.line === _todo.line && todo.filePath === _todo.filePath) === i)
+  const unignoredFiles = ignoreFiles ? files.filter((file) => !file.path.split("/").includes(ignoreFiles)) : files
+  const filesToParse = todoTag
+    ? unignoredFiles.filter(
+        (file) => cache.getFileCache(file)?.tags?.filter((e) => getTagMeta(e.tag).main === todoTag)?.length
+      )
+    : unignoredFiles
 
-  allTodos.sort((a, b) => (sort === "new->old" ? b.fileCreatedTs - a.fileCreatedTs : a.fileCreatedTs - b.fileCreatedTs))
-  console.log(allTodos)
-  return allTodos
+  const fileInfo = await Promise.all(
+    filesToParse.map<Promise<FileInfo>>(async (file) => {
+      const fileCache = cache.getFileCache(file)
+      const tagsOnPage = todoTag ? fileCache?.tags?.filter((e) => getTagMeta(e.tag).main === todoTag) ?? [] : undefined
+      const content = await vault.cachedRead(file)
+      return { content, cache: fileCache, validTags: tagsOnPage, file }
+    })
+  )
+
+  const nonEmptyFiles = fileInfo.filter((f) => f.content)
+  const allTodos = nonEmptyFiles.flatMap(getTodosFromFile)
+
+  const finalTodos = allTodos.filter(
+    (todo, i, a) => a.findIndex((_todo) => todo.line === _todo.line && todo.filePath === _todo.filePath) === i
+  )
+
+  finalTodos.sort((a, b) =>
+    sort === "new->old" ? b.fileCreatedTs - a.fileCreatedTs : a.fileCreatedTs - b.fileCreatedTs
+  )
+  return finalTodos
 }
 
 export const groupTodos = (items: TodoItem[], groupBy: GroupByType): TodoGroup[] => {
@@ -108,11 +112,21 @@ const isMetaPressed = (e: MouseEvent): boolean => {
   return isMacOS() ? e.metaKey : e.ctrlKey
 }
 
+const getTodosFromFile = (file: FileInfo) => {
+  if (file.validTags) return file.validTags.flatMap((tag) => findAllTodosFromTag(file, tag))
+  else return findAllTodosInFile(file)
+}
+
+const findAllTodosInFile = (file: FileInfo): TodoItem[] => {
+  const fileLines = getAllLinesFromFile(file.content)
+  const todos: TodoItem[] = []
+  // for ()
+  return []
+}
+
 const findAllTodosFromTag = (file: FileInfo, tag: TagCache) => {
-  const fileContents = file.content
   const links = file.cache.links ?? []
-  if (!fileContents) return []
-  const fileLines = getAllLinesFromFile(fileContents)
+  const fileLines = getAllLinesFromFile(file.content)
   const tagMeta = getTagMeta(tag.tag)
   const tagLine = fileLines[tag.position.start.line]
   const originalLineIsTodo = lineIsValidTodo(tagLine, tagMeta.main)
@@ -122,22 +136,32 @@ const findAllTodosFromTag = (file: FileInfo, tag: TagCache) => {
   const todos: TodoItem[] = []
   let todoStack: TodoItem[] = []
   for (let i = tag.position.start.line; i < fileLines.length; i++) {
-    const line = fileLines[i]
-    if (line.length === 0) break
-    if (lineIsValidTodo(line, tagMeta.main)) {
-      const newItem = formTodo(line, file.file, tagMeta, links, i)
-      const parentItem = todoStack.pop()
-      if (parentItem && parentItem.spacesIndented < newItem.spacesIndented) {
-        parentItem.children.push(newItem)
-        todoStack.push(parentItem)
-      } else {
-        todos.push(newItem)
-      }
-      todoStack.push(newItem)
-    }
+    const newItem = getTodoFromLine(fileLines[i], file.file, tagMeta, links, i)
+
+    // const parentItem = todoStack.pop()
+    // if (parentItem && parentItem.spacesIndented < newItem.spacesIndented) {
+    //   parentItem.children.push(newItem)
+    //   todoStack.push(parentItem)
+    // } else {
+    //   todos.push(newItem)
+    // }
+    // todoStack.push(newItem)
   }
 
   return todos
+}
+
+const getTodoFromLine = (
+  line: string,
+  file: TFile,
+  tagMeta: TagMeta,
+  links: LinkCache[],
+  lineNum: number
+): TodoItem | void => {
+  if (line.length === 0) return
+  if (!lineIsValidTodo(line, tagMeta.main)) return
+  const newItem = formTodo(line, file, tagMeta, links, lineNum)
+  return newItem
 }
 
 const formTodo = (line: string, file: TFile, tagMeta: TagMeta, links: LinkCache[], lineNum: number): TodoItem => {

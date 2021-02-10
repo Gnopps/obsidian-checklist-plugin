@@ -51,7 +51,7 @@ export type FileInfo = {
   content: string
   cache: CachedMetadata
   file: TFile
-  validTags: TagCache[]
+  validTags?: TagCache[]
 }
 
 export type TagMeta = { main: string; sub: string }
